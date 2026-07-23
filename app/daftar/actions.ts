@@ -35,7 +35,8 @@ export async function register(formData: FormData) {
   });
 
   if (error) {
-    return { success: false, message: 'Gagal mendaftar, coba lagi.' };
+    console.error('Supabase insert error (register):', error);
+    return { success: false, message: `Gagal mendaftar: ${error.message}` };
   }
 
   return { success: true, message: 'Pendaftaran berhasil! Tunggu persetujuan admin sebelum bisa login.' };

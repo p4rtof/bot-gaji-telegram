@@ -26,8 +26,8 @@ export async function requestReset(
   if (!user) {
     // Jangan kasih tahu username gak ketemu, biar gak bisa dipakai buat nebak-nebak username valid
     return {
-      success: true,
-      message: "Kalau username terdaftar, kode reset sudah dikirim ke Telegram kamu.",
+      success: false,
+      message: "Username tidak terdaftar",
     };
   }
 
@@ -53,7 +53,7 @@ export async function requestReset(
 
   return {
     success: true,
-    message: "Kalau username terdaftar, kode reset sudah dikirim ke Telegram kamu.",
+    message: "Username terdaftar, kode reset sudah dikirim ke Telegram kamu.",
   };
 }
 

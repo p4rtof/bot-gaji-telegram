@@ -39,10 +39,10 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-4 py-8">
-      <div className="w-full sm:max-w-md">
+      <div className="w-full sm:max-w-sm">
         <div className="text-center mb-8">
           <span className="inline-block text-xs font-medium tracking-wide text-zinc-500 uppercase bg-white border border-zinc-200 rounded-full px-3 py-1 mb-6">
-            Sistem Kasbon
+            Manajemen Gaji
           </span>
           <h1 className="text-3xl font-semibold text-zinc-900 tracking-tight mb-3">
             Masuk ke Akun
@@ -52,10 +52,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white border border-zinc-200 rounded-xl p-6 sm:p-8 shadow-sm"
-        >
+        <form onSubmit={handleSubmit}>
           {error && (
             <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3">
               {error}
@@ -72,7 +69,7 @@ export default function LoginPage() {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="username kamu"
+              placeholder="username"
               className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-base text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent transition-shadow"
             />
           </div>
@@ -87,7 +84,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="password"
               className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-base text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent transition-shadow"
             />
           </div>
@@ -103,6 +100,13 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-zinc-500 mt-4">
           <a href="/forgot-password" className="hover:underline">Lupa password?</a>
+        </p>
+
+        <p className="text-center text-sm text-zinc-500 mt-2">
+          Belum punya akun?{' '}
+          <a href="/daftar" className="text-zinc-900 font-medium hover:underline">
+            Daftar di sini
+          </a>
         </p>
       </div>
     </div>
