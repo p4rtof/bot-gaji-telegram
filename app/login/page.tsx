@@ -28,7 +28,9 @@ export default function LoginPage() {
         throw new Error(data?.message || "Username atau password salah");
       }
 
-      router.push(data?.role === "admin" ? "/admin" : "/pengajuan");
+      if (data?.role === "admin") router.push("/admin");
+      else if (data?.role === "koordinator") router.push("/koordinator");
+      else router.push("/pengajuan");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan");
@@ -60,7 +62,10 @@ export default function LoginPage() {
           )}
 
           <div className="mb-4">
-            <label htmlFor="username" className="block text-sm font-medium text-zinc-700 mb-1.5">
+            <label
+              htmlFor="username"
+              className="block text-sm font-medium text-zinc-700 mb-1.5"
+            >
               Username
             </label>
             <input
@@ -75,7 +80,10 @@ export default function LoginPage() {
           </div>
 
           <div className="mb-6">
-            <label htmlFor="password" className="block text-sm font-medium text-zinc-700 mb-1.5">
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-zinc-700 mb-1.5"
+            >
               Password
             </label>
             <input
@@ -99,12 +107,17 @@ export default function LoginPage() {
         </form>
 
         <p className="text-center text-sm text-zinc-500 mt-4">
-          <a href="/forgot-password" className="hover:underline">Lupa password?</a>
+          <a href="/forgot-password" className="hover:underline">
+            Lupa password?
+          </a>
         </p>
 
         <p className="text-center text-sm text-zinc-500 mt-2">
-          Belum punya akun?{' '}
-          <a href="/daftar" className="text-zinc-900 font-medium hover:underline">
+          Belum punya akun?{" "}
+          <a
+            href="/daftar"
+            className="text-zinc-900 font-medium hover:underline"
+          >
             Daftar di sini
           </a>
         </p>

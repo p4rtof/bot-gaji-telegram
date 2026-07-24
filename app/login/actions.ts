@@ -32,5 +32,8 @@ export async function login(formData: FormData) {
   }
 
   await createSession(user);
-  redirect(user.role === 'admin' ? '/admin' : '/pengajuan');
+
+  if (user.role === 'admin') redirect('/admin');
+  if (user.role === 'koordinator') redirect('/koordinator');
+  redirect('/pengajuan');
 }

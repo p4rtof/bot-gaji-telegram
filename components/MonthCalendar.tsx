@@ -83,7 +83,7 @@ export default function MonthCalendar({
               type="button"
               disabled={disabled}
               onClick={() => onDayClick(dateStr)}
-              className={`aspect-square rounded-lg text-xs flex items-center justify-center transition-colors disabled:opacity-50 ${colorFor(
+              className={`aspect-square rounded-lg text-md   flex items-center justify-center transition-colors disabled:opacity-50 ${colorFor(
                 markedDates[dateStr],
               )}`}
             >

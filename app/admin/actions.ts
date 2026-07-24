@@ -6,6 +6,7 @@ import { sendTelegramPhoto } from "@/lib/telegram-photo";
 import { generatePayslipImage } from "@/lib/payslip-image";
 import { revalidatePath } from "next/cache";
 
+
 export async function updateRequestStatus(
   requestId: number,
   status: "approved" | "rejected",
@@ -99,6 +100,70 @@ export async function addAttendanceEntry(
   revalidatePath("/admin");
 }
 
+export async function previewPayroll(
+  userId: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<
+  | { error: string }
+  | {
+      baseAmount: number;
+      workDaysCount: number;
+      overtimeCount: number;
+      overtimeAmount: number;
+      kasbonList: { id: number; amount: number; reason: string | null; created_at: string }[];
+    }
+> {
+  const { data: user } = await supabase.from("users").select("*").eq("id", userId).single();
+  if (!user) return { error: "Karyawan tidak ditemukan." };
+  if (!user.salary_type) return { error: "Karyawan ini belum diatur tipe gajinya." };
+
+  const { data: attendance } = await supabase
+    .from("attendance_entries")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("date", periodStart)
+    .lte("date", periodEnd);
+
+  const { data: overtime } = await supabase
+    .from("overtime_entries")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("date", periodStart)
+    .lte("date", periodEnd);
+
+  const overtimeCount = overtime?.length ?? 0;
+  const overtimeAmount = overtimeCount * Number(user.overtime_rate ?? 0);
+  const presentDays = (attendance ?? []).filter((a) => a.status === "present").length;
+
+  const baseAmount =
+    user.salary_type === "weekly"
+      ? presentDays * (Number(user.weekly_salary ?? 0) / 6)
+      : presentDays * Number(user.daily_rate ?? 0);
+
+  const { data: kasbonRequests } = await supabase
+    .from("requests")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("type", "kasbon")
+    .eq("status", "approved")
+    .is("deducted_payroll_id", null)
+    .order("created_at", { ascending: false });
+
+  return {
+    baseAmount,
+    workDaysCount: presentDays,
+    overtimeCount,
+    overtimeAmount,
+    kasbonList: (kasbonRequests ?? []).map((r) => ({
+      id: r.id,
+      amount: Number(r.amount),
+      reason: r.reason ?? null,
+      created_at: r.created_at,
+    })),
+  };
+}
+
 export async function deleteAttendanceEntry(id: number): Promise<void> {
   await supabase.from("attendance_entries").delete().eq("id", id);
   revalidatePath("/admin");
@@ -125,22 +190,17 @@ export async function generatePayroll(
   userId: string,
   periodStart: string,
   periodEnd: string,
+  kasbonIds: number[],
+  proofFormData: FormData,
 ): Promise<{ success: boolean; message?: string }> {
-  const { data: user } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", userId)
-    .single();
+  const proofFile = proofFormData.get("proof") as File | null;
+  if (!proofFile || proofFile.size === 0) {
+    return { success: false, message: "Bukti transfer wajib diupload." };
+  }
 
-  if (!user) {
-    return { success: false, message: "Karyawan tidak ditemukan." };
-  }
-  if (!user.salary_type) {
-    return {
-      success: false,
-      message: "Karyawan ini belum diatur tipe gajinya.",
-    };
-  }
+  const { data: user } = await supabase.from("users").select("*").eq("id", userId).single();
+  if (!user) return { success: false, message: "Karyawan tidak ditemukan." };
+  if (!user.salary_type) return { success: false, message: "Karyawan ini belum diatur tipe gajinya." };
 
   const { data: attendance } = await supabase
     .from("attendance_entries")
@@ -159,36 +219,28 @@ export async function generatePayroll(
   const overtimeCount = overtime?.length ?? 0;
   const overtimeRate = Number(user.overtime_rate ?? 0);
   const overtimeAmount = overtimeCount * overtimeRate;
+  const presentDays = (attendance ?? []).filter((a) => a.status === "present").length;
 
-  const presentDays = (attendance ?? []).filter(
-    (a) => a.status === "present",
-  ).length;
+  const baseAmount =
+    user.salary_type === "weekly"
+      ? presentDays * (Number(user.weekly_salary ?? 0) / 6)
+      : presentDays * Number(user.daily_rate ?? 0);
 
-  let baseAmount = 0;
-  let workDaysCount: number | null = null;
-
-  if (user.salary_type === "weekly") {
-    const dailyEquivalent = Number(user.weekly_salary ?? 0) / 6; // 6 hari kerja/minggu
-    workDaysCount = presentDays;
-    baseAmount = presentDays * dailyEquivalent;
-  } else {
-    workDaysCount = presentDays;
-    baseAmount = presentDays * Number(user.daily_rate ?? 0);
+  // Hanya kasbon yang dipilih admin, dan divalidasi ulang di server (approved, milik user ini, belum dipotong)
+  let kasbonDeduction = 0;
+  let kasbonRequests: any[] = [];
+  if (kasbonIds.length > 0) {
+    const { data } = await supabase
+      .from("requests")
+      .select("*")
+      .in("id", kasbonIds)
+      .eq("user_id", userId)
+      .eq("type", "kasbon")
+      .eq("status", "approved")
+      .is("deducted_payroll_id", null);
+    kasbonRequests = data ?? [];
+    kasbonDeduction = kasbonRequests.reduce((sum, r) => sum + Number(r.amount), 0);
   }
-
-  // kasbon yang sudah disetujui tapi belum pernah dipotong dari gaji manapun
-  const { data: kasbonRequests } = await supabase
-    .from("requests")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("type", "kasbon")
-    .eq("status", "approved")
-    .is("deducted_payroll_id", null);
-
-  const kasbonDeduction = (kasbonRequests ?? []).reduce(
-    (sum, r) => sum + Number(r.amount),
-    0,
-  );
 
   const totalAmount = baseAmount + overtimeAmount - kasbonDeduction;
 
@@ -200,7 +252,7 @@ export async function generatePayroll(
       period_end: periodEnd,
       salary_type: user.salary_type,
       base_amount: baseAmount,
-      work_days_count: workDaysCount,
+      work_days_count: presentDays,
       overtime_count: overtimeCount,
       overtime_amount: overtimeAmount,
       kasbon_deduction: kasbonDeduction,
@@ -213,14 +265,31 @@ export async function generatePayroll(
     return { success: false, message: "Gagal menyimpan data gaji." };
   }
 
-  if (kasbonRequests && kasbonRequests.length > 0) {
+  if (kasbonRequests.length > 0) {
     await supabase
       .from("requests")
       .update({ deducted_payroll_id: payroll.id })
-      .in(
-        "id",
-        kasbonRequests.map((r) => r.id),
-      );
+      .in("id", kasbonRequests.map((r) => r.id));
+  }
+
+  const proofBuffer = Buffer.from(await proofFile.arrayBuffer());
+  const proofPath = `${userId}/${payroll.id}.png`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("payroll-proofs")
+    .upload(proofPath, proofBuffer, {
+      contentType: proofFile.type || "image/png",
+      upsert: true,
+    });
+
+  if (!uploadError) {
+    const { data: publicUrlData } = supabase.storage.from("payroll-proofs").getPublicUrl(proofPath);
+    await supabase
+      .from("payroll_runs")
+      .update({ transfer_proof_url: publicUrlData.publicUrl })
+      .eq("id", payroll.id);
+  } else {
+    console.error("Gagal upload bukti transfer:", uploadError);
   }
 
   try {
@@ -230,7 +299,7 @@ export async function generatePayroll(
       periodEnd,
       salaryType: user.salary_type,
       baseAmount,
-      workDaysCount,
+      workDaysCount: presentDays,
       overtimeCount,
       overtimeAmount,
       kasbonDeduction,
@@ -240,18 +309,15 @@ export async function generatePayroll(
     const caption = `Slip gaji ${user.name}\nPeriode ${periodStart} s/d ${periodEnd}\nTotal diterima: Rp${totalAmount.toLocaleString("id-ID")}`;
 
     await sendTelegramPhoto(user.telegram_chat_id, imageBuffer, caption);
+    await sendTelegramPhoto(user.telegram_chat_id, proofBuffer, "Bukti transfer gaji 💸");
 
-    await supabase
-      .from("payroll_runs")
-      .update({ sent_at: new Date() })
-      .eq("id", payroll.id);
+    await supabase.from("payroll_runs").update({ sent_at: new Date() }).eq("id", payroll.id);
   } catch (err) {
-    console.error("Gagal mengirim slip gaji ke Telegram:", err);
+    console.error("Gagal mengirim slip/bukti gaji ke Telegram:", err);
     revalidatePath("/admin");
     return {
       success: true,
-      message:
-        "Gaji tersimpan, tapi gagal mengirim slip ke Telegram. Cek koneksi/bot token.",
+      message: "Gaji tersimpan, tapi gagal mengirim ke Telegram. Cek koneksi/bot token.",
     };
   }
 
