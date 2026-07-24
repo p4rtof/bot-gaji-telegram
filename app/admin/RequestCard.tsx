@@ -22,6 +22,9 @@ export default function RequestCard({ request, readOnly = false }: { request: an
         {request.type === 'kasbon' ? 'Kasbon' : 'Reimburse'} · Rp{Number(request.amount).toLocaleString('id-ID')}
       </div>
       <div className="text-sm text-zinc-500">{request.reason}</div>
+      {request.type === 'kasbon' && request.deducted_payroll_id && (
+        <div className="text-xs text-zinc-400">🧾 Sudah dipotong dari gaji</div>
+      )}
 
       {!readOnly && (
         <div className="flex gap-2 mt-2">
