@@ -30,16 +30,15 @@ export default function RegisterForm() {
       </div>
       <div>
         <label className="text-sm font-medium text-zinc-700">
-          Telegram Chat ID
+          Telegram Chat ID (Opsional)
         </label>
         <input
           name="telegramChatId"
-          required
           placeholder="Contoh: 123456789"
           className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
         />
         <p className="mt-1 text-xs text-zinc-400">
-          Chat dulu bot Telegram kami{" "}
+          Chat bot Telegram kami{" "}
           <a
             href="https://t.me/management_gaji_bot"
             target="_blank"

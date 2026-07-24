@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { message: "Akun kamu belum disetujui admin atau sudah tidak aktif" },
       { status: 403 },
-    );
+    );  
   }
 
   const valid = await bcrypt.compare(password, user.password_hash);

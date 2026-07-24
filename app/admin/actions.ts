@@ -20,11 +20,13 @@ export async function updateRequestStatus(
 
   if (!updated) return;
 
-  const statusText = status === "approved" ? "SETUJUI ✅" : "TOLAK ❌";
-  await sendTelegram(
-    updated.users.telegram_chat_id,
-    `Pengajuan ${updated.type} kamu sebesar Rp${updated.amount.toLocaleString("id-ID")} telah di-${statusText} oleh admin.`,
-  );
+  if (updated.users?.telegram_chat_id) {
+    const statusText = status === "approved" ? "SETUJUI ✅" : "TOLAK ❌";
+    await sendTelegram(
+      updated.users.telegram_chat_id,
+      `Pengajuan ${updated.type} kamu sebesar Rp${updated.amount.toLocaleString("id-ID")} telah di-${statusText} oleh admin.`,
+    );
+  }
 
   revalidatePath("/admin");
 }
@@ -42,12 +44,14 @@ export async function updateUserStatus(
 
   if (!updated) return;
 
-  const message =
-    status === "active"
-      ? `Halo ${updated.name}, akun kamu sudah disetujui admin ✅. Sekarang kamu bisa login menggunakan username "${updated.username}".`
-      : `Halo ${updated.name}, pendaftaran akun kamu ditolak oleh admin ❌. Silakan hubungi admin untuk info lebih lanjut.`;
+  if (updated.telegram_chat_id) {
+    const message =
+      status === "active"
+        ? `Halo ${updated.name}, akun kamu sudah disetujui admin ✅. Sekarang kamu bisa login menggunakan username "${updated.username}".`
+        : `Halo ${updated.name}, pendaftaran akun kamu ditolak oleh admin ❌. Silakan hubungi admin untuk info lebih lanjut.`;
 
-  await sendTelegram(updated.telegram_chat_id, message);
+    await sendTelegram(updated.telegram_chat_id, message);
+  }
 
   revalidatePath("/admin");
 }
@@ -114,7 +118,7 @@ export async function previewPayroll(
       kasbonList: { id: number; amount: number; reason: string | null; created_at: string }[];
     }
 > {
-  const { data: user } = await supabase.from("users").select("*").eq("id", userId).single();
+  const { data: user } = await supabase.from("users").select("*").eq("short_id", userId).single();
   if (!user) return { error: "Karyawan tidak ditemukan." };
   if (!user.salary_type) return { error: "Karyawan ini belum diatur tipe gajinya." };
 
@@ -198,7 +202,7 @@ export async function generatePayroll(
     return { success: false, message: "Bukti transfer wajib diupload." };
   }
 
-  const { data: user } = await supabase.from("users").select("*").eq("id", userId).single();
+  const { data: user } = await supabase.from("users").select("*").eq("short_id", userId).single();
   if (!user) return { success: false, message: "Karyawan tidak ditemukan." };
   if (!user.salary_type) return { success: false, message: "Karyawan ini belum diatur tipe gajinya." };
 
@@ -292,32 +296,40 @@ export async function generatePayroll(
     console.error("Gagal upload bukti transfer:", uploadError);
   }
 
-  try {
-    const imageBuffer = await generatePayslipImage({
-      name: user.name,
-      periodStart,
-      periodEnd,
-      salaryType: user.salary_type,
-      baseAmount,
-      workDaysCount: presentDays,
-      overtimeCount,
-      overtimeAmount,
-      kasbonDeduction,
-      totalAmount,
-    });
+  if (user.telegram_chat_id) {
+    try {
+      const imageBuffer = await generatePayslipImage({
+        name: user.name,
+        periodStart,
+        periodEnd,
+        salaryType: user.salary_type,
+        baseAmount,
+        workDaysCount: presentDays,
+        overtimeCount,
+        overtimeAmount,
+        kasbonDeduction,
+        totalAmount,
+      });
 
-    const caption = `Slip gaji ${user.name}\nPeriode ${periodStart} s/d ${periodEnd}\nTotal diterima: Rp${totalAmount.toLocaleString("id-ID")}`;
+      const caption = `Slip gaji ${user.name}\nPeriode ${periodStart} s/d ${periodEnd}\nTotal diterima: Rp${totalAmount.toLocaleString("id-ID")}`;
 
-    await sendTelegramPhoto(user.telegram_chat_id, imageBuffer, caption);
-    await sendTelegramPhoto(user.telegram_chat_id, proofBuffer, "Bukti transfer gaji 💸");
+      await sendTelegramPhoto(user.telegram_chat_id, imageBuffer, caption);
+      await sendTelegramPhoto(user.telegram_chat_id, proofBuffer, "Bukti transfer gaji 💸");
 
-    await supabase.from("payroll_runs").update({ sent_at: new Date() }).eq("id", payroll.id);
-  } catch (err) {
-    console.error("Gagal mengirim slip/bukti gaji ke Telegram:", err);
+      await supabase.from("payroll_runs").update({ sent_at: new Date() }).eq("id", payroll.id);
+    } catch (err) {
+      console.error("Gagal mengirim slip/bukti gaji ke Telegram:", err);
+      revalidatePath("/admin");
+      return {
+        success: true,
+        message: "Gaji tersimpan, tapi gagal mengirim ke Telegram. Cek koneksi/bot token.",
+      };
+    }
+  } else {
     revalidatePath("/admin");
     return {
       success: true,
-      message: "Gaji tersimpan, tapi gagal mengirim ke Telegram. Cek koneksi/bot token.",
+      message: "Gaji tersimpan. Karyawan ini tidak punya Telegram terdaftar, jadi slip & bukti transfer tidak dikirim otomatis.",
     };
   }
 
