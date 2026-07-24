@@ -41,7 +41,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-4 py-8">
-      <div className="w-full sm:max-w-sm">
+      <div className="w-xs sm:max-w-md">
         <div className="text-center mb-8">
           <span className="inline-block text-xs font-medium tracking-wide text-zinc-500 uppercase bg-white border border-zinc-200 rounded-full px-3 py-1 mb-6">
             Manajemen Gaji
@@ -50,7 +50,7 @@ export default function LoginPage() {
             Masuk ke Akun
           </h1>
           <p className="text-zinc-500 leading-relaxed">
-            Masuk untuk mengajukan kasbon atau mengelola persetujuan.
+            Masuk untuk mengajukan dan mengelola persetujuan.
           </p>
         </div>
 

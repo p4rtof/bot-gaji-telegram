@@ -31,6 +31,85 @@ export async function updateRequestStatus(
   revalidatePath("/admin");
 }
 
+// Dipakai saat admin ACC kasbon sambil kirim foto bukti transfer lewat Telegram
+// (foto + caption "ACC {id}" dalam satu pesan).
+export async function approveKasbonWithProof(
+  requestId: number,
+  proofBuffer: Buffer,
+  contentType: string,
+): Promise<{ success: boolean; message?: string }> {
+  const { data: existing } = await supabase
+    .from("requests")
+    .select("*, users(*)")
+    .eq("id", requestId)
+    .single();
+
+  if (!existing) {
+    return { success: false, message: `Pengajuan #${requestId} tidak ditemukan.` };
+  }
+
+  const ext = contentType === "image/png" ? "png" : "jpg";
+  const proofPath = `kasbon/${requestId}.${ext}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("payroll-proofs")
+    .upload(proofPath, proofBuffer, { contentType, upsert: true });
+
+  if (uploadError) {
+    console.error("Gagal upload bukti transfer kasbon:", uploadError);
+    return { success: false, message: "Gagal upload foto bukti transfer, coba kirim ulang." };
+  }
+
+  const { data: publicUrlData } = supabase.storage.from("payroll-proofs").getPublicUrl(proofPath);
+
+  const { data: updated } = await supabase
+    .from("requests")
+    .update({ status: "approved", proof_url: publicUrlData.publicUrl, updated_at: new Date() })
+    .eq("id", requestId)
+    .select("*, users(*)")
+    .single();
+
+  if (!updated) {
+    return { success: false, message: "Gagal menyimpan status pengajuan." };
+  }
+
+  if (updated.users?.telegram_chat_id) {
+    const caption = `Pengajuan ${updated.type} kamu sebesar Rp${Number(updated.amount).toLocaleString("id-ID")} telah di-SETUJUI ✅\n\nIni bukti transfernya:`;
+    await sendTelegramPhoto(updated.users.telegram_chat_id, proofBuffer, caption);
+  }
+
+  revalidatePath("/admin");
+  return { success: true };
+}
+
+// Dipakai saat admin TOLAK kasbon sambil kasih alasan lewat Telegram
+// (format: "TOLAK {id} {alasan}").
+export async function rejectRequestWithReason(
+  requestId: number,
+  reason: string,
+): Promise<{ success: boolean; message?: string }> {
+  const { data: updated } = await supabase
+    .from("requests")
+    .update({ status: "rejected", reject_reason: reason, updated_at: new Date() })
+    .eq("id", requestId)
+    .select("*, users(*)")
+    .single();
+
+  if (!updated) {
+    return { success: false, message: `Pengajuan #${requestId} tidak ditemukan.` };
+  }
+
+  if (updated.users?.telegram_chat_id) {
+    await sendTelegram(
+      updated.users.telegram_chat_id,
+      `Pengajuan ${updated.type} kamu sebesar Rp${Number(updated.amount).toLocaleString("id-ID")} telah di-TOLAK ❌\n\nAlasan: ${reason}`,
+    );
+  }
+
+  revalidatePath("/admin");
+  return { success: true };
+}
+
 export async function updateUserStatus(
   userId: string,
   status: "active" | "rejected",

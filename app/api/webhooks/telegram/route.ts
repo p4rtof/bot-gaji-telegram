@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateRequestStatus, updateUserStatus } from "@/app/admin/actions";
+import {
+  updateRequestStatus,
+  updateUserStatus,
+  approveKasbonWithProof,
+  rejectRequestWithReason,
+} from "@/app/admin/actions";
 import { sendTelegram } from "@/lib/telegram";
+import { downloadTelegramFile } from "@/lib/telegram-photo";
 import { supabase } from "@/lib/supabase";
 
 // Telegram kirim payload webhook (Update object): { update_id, message: { from, chat, text, ... } }
@@ -30,8 +36,82 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Pastikan yang bales cuma admin yang terdaftar
     const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID;
+
+    // Format: /kasbon 200000 buat servis motor -> pegawai ajukan kasbon langsung dari Telegram
+    const kasbonMatch = text.match(/^\/kasbon\s+(\d+)\s+(.+)$/i);
+    if (kasbonMatch && chatId !== adminChatId) {
+      const amount = parseInt(kasbonMatch[1], 10);
+      const reason = kasbonMatch[2].trim();
+
+      const { data: user } = await supabase
+        .from("users")
+        .select("*")
+        .eq("telegram_chat_id", chatId)
+        .eq("status", "active")
+        .single();
+
+      if (!user) {
+        await sendTelegram(
+          chatId,
+          "⚠️ Chat ID kamu belum terdaftar/aktif. Daftar dulu di web, atau hubungi admin.",
+        );
+        return NextResponse.json({ ok: true });
+      }
+
+      const { data: newRequest, error } = await supabase
+        .from("requests")
+        .insert({ user_id: user.id, type: "kasbon", amount, reason, status: "pending" })
+        .select()
+        .single();
+
+      if (error || !newRequest) {
+        await sendTelegram(chatId, "⚠️ Gagal mengirim pengajuan kasbon, coba lagi.");
+        return NextResponse.json({ ok: true });
+      }
+
+      await sendTelegram(
+        chatId,
+        `✅ Pengajuan kasbon Rp${amount.toLocaleString("id-ID")} sudah dikirim ke admin. Tunggu ya!`,
+      );
+
+      if (adminChatId) {
+        await sendTelegram(
+          adminChatId,
+          `🔔 Pengajuan kasbon baru!\nDari: ${user.name}\nJumlah: Rp${amount.toLocaleString("id-ID")}\nAlasan: ${reason}\n\nID: #${newRequest.id}\n\nBalas cepat:\nACC ${newRequest.id} → setujui (kirim foto bukti transfer dengan caption ini biar sekalian terkirim ke pegawai)\nTOLAK ${newRequest.id} alasan → tolak dengan alasan`,
+        );
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // Format: foto + caption "ACC {id}" -> admin ACC kasbon sekaligus kirim bukti transfer
+    const photos = message.photo as { file_id: string }[] | undefined;
+    const caption: string = (message.caption ?? "").trim();
+    if (photos && photos.length > 0 && chatId === adminChatId) {
+      const photoAccMatch = caption.match(/^ACC\s+(\d+)$/i);
+      if (photoAccMatch) {
+        const requestId = parseInt(photoAccMatch[1], 10);
+        try {
+          const fileId = photos[photos.length - 1].file_id; // resolusi tertinggi ada di elemen terakhir
+          const { buffer, contentType } = await downloadTelegramFile(fileId);
+          const result = await approveKasbonWithProof(requestId, buffer, contentType);
+
+          await sendTelegram(
+            adminChatId,
+            result.success
+              ? `✅ Pengajuan #${requestId} disetujui & bukti transfer sudah dikirim ke pegawai.`
+              : `⚠️ ${result.message ?? "Gagal memproses approval."}`,
+          );
+        } catch (err) {
+          console.error("Gagal proses ACC + bukti transfer:", err);
+          await sendTelegram(adminChatId, "⚠️ Gagal download/upload foto bukti transfer, coba kirim ulang.");
+        }
+        return NextResponse.json({ ok: true });
+      }
+    }
+
+    // Pastikan yang bales cuma admin yang terdaftar
     if (!adminChatId || chatId !== adminChatId) {
       return NextResponse.json({ ok: true }); // abaikan, bukan dari admin
     }
@@ -63,7 +143,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Format: ACC 12 / TOLAK 12 -> approve/reject pengajuan kasbon
+    // Format: TOLAK 12 dana tidak cukup -> tolak pengajuan sekaligus kasih alasan
+    const rejectMatch = text.match(/^TOLAK\s+(\d+)\s+(.+)$/i);
+    if (rejectMatch) {
+      const requestId = parseInt(rejectMatch[1], 10);
+      const reason = rejectMatch[2].trim();
+
+      const result = await rejectRequestWithReason(requestId, reason);
+      await sendTelegram(
+        adminChatId,
+        result.success
+          ? `❌ Pengajuan #${requestId} ditolak. Alasan sudah dikirim ke pegawai.`
+          : `⚠️ ${result.message ?? "Gagal menolak pengajuan."}`,
+      );
+      return NextResponse.json({ ok: true });
+    }
+
+    // Format: ACC 12 / TOLAK 12 (tanpa bukti/alasan) -> approve/reject pengajuan biasa
     const requestMatch = text.match(/^(ACC|TOLAK)\s+(\d+)$/i);
     if (requestMatch) {
       const action = requestMatch[1].toUpperCase();
@@ -74,8 +170,8 @@ export async function POST(req: NextRequest) {
       await sendTelegram(
         adminChatId,
         status === "approved"
-          ? `✅ Pengajuan #${requestId} berhasil disetujui.`
-          : `❌ Pengajuan #${requestId} ditolak.`,
+          ? `✅ Pengajuan #${requestId} berhasil disetujui.\n(Tips: kirim foto bukti transfer dengan caption "ACC ${requestId}" biar bukti transfer otomatis terkirim ke pegawai)`
+          : `❌ Pengajuan #${requestId} ditolak.\n(Tips: ketik "TOLAK ${requestId} <alasan>" biar pegawai tahu alasannya)`,
       );
       return NextResponse.json({ ok: true });
     }
